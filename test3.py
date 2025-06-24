@@ -219,10 +219,40 @@ def initial_parametrization(corners, faces):
         neighbors = direct_neighbors
 
         if sort:
-            # pick one
-            first = 0
+            sorted_neighbors = []
+            # get the orientation of the faces
+            neighbors = list(neighbors)
+            normals = []
+            angles = []
+            for face in corners[corner]:
+                normal = np.cross(
+                    np.array(face[1]) - np.array(face[0]),
+                    np.array(face[2]) - np.array(face[0]),
+                )
+                # get the normal that points outside the surface
+                if tuple(corner + normal) in corners.keys():
+                    normal = -normal
+                normals.append(normal)
+            # find the average normal
+            average_normal = np.mean(normals, axis=0)
+            average_normal /= np.linalg.norm(average_normal)
+            # now corner and average_normal uniquely determine a plane
 
-        return direct_neighbors
+            # select a neighbor at random
+            niter = iter(neighbors)
+            first = next(niter)
+
+            # project the neighbor onto the plane\
+            d = np.array(first) - np.array(corner)
+            projected_first = d - np.dot(d, average_normal) * average_normal
+            angles.append(0.0)
+
+            for c in niter:
+                d = np.array(c) - np.array(corner)
+                projected_c = d - np.dot(d, average_normal) * average_normal
+                # compute the angle between projected_c and projected_first
+                # TODO
+        return neighbors
 
     # as of python 3.7, dicts are ordered by insertion order
 
