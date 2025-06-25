@@ -7,8 +7,20 @@ import utils
 # with dense voxels
 voxels_s = [
     tuple([0, 0, 0]),
-    tuple([0, 0, 1]),
+    tuple([1, 0, 0]),
+    tuple([2, 0, 0]),
+    tuple([0, 1, 0]),
+    tuple([1, 1, 0]),
+    tuple([2, 1, 0]),
+    tuple([1, 1, 1]),
+    tuple([1, 1, 2]),
+    tuple([1, 2, 2]),
 ]
+
+# voxels_s = [
+#     tuple([0, 0, 0]),
+#     tuple([1, 0, 0]),
+# ]
 
 voxels_d = utils.sparse_to_dense(voxels_s)
 
@@ -197,10 +209,21 @@ def create_data_structure_from_dense(voxels):
 
 def initial_parametrization(corners, faces):
 
-    def get_neighbors(corner, direct=True, sort=True):
+    def get_neighbors(corner: np.ndarray, direct=True, sort=True):
         """
         Get the neighbors of a corner in the data structure.
+
+        Args:
+            corner: a numpy array of shape (3,) representing the corner
+            direct: if True, only return the direct neighbors (they share an edge)
+            sort: if True, sort the neighbors clockwise around the corner
+        Returns:
+            neighbors: a container of corners that are neighbors of the given corner.
+                       If sorted is False, it is a set, otherwise it is a list.
+
         """
+
+        # print(f"Corner: {corner}")
 
         neighbors = set()
         for face in corners[corner]:
@@ -218,8 +241,9 @@ def initial_parametrization(corners, faces):
 
         neighbors = direct_neighbors
 
+        # print(f"Neighbors before sorting: {neighbors}")
+
         if sort:
-            sorted_neighbors = []
             # get the orientation of the faces
             neighbors = list(neighbors)
             normals = []
@@ -238,20 +262,42 @@ def initial_parametrization(corners, faces):
             average_normal /= np.linalg.norm(average_normal)
             # now corner and average_normal uniquely determine a plane
 
+            # print(f"Average normal: {average_normal}")
+
             # select a neighbor at random
             niter = iter(neighbors)
             first = next(niter)
 
             # project the neighbor onto the plane\
             d = np.array(first) - np.array(corner)
+            # print(f" d: {d}")
             projected_first = d - np.dot(d, average_normal) * average_normal
+            # print(f"Projected first: {projected_first}")
+            projected_first = projected_first / np.linalg.norm(projected_first)
+            # complete the plane basis
+            orth = np.cross(average_normal, projected_first)
+            # print(f"Basis vectors: {projected_first}, {orth}")
             angles.append(0.0)
 
             for c in niter:
+                # print(f"Processing neighbor: {c}")
                 d = np.array(c) - np.array(corner)
                 projected_c = d - np.dot(d, average_normal) * average_normal
-                # compute the angle between projected_c and projected_first
-                # TODO
+
+                x = np.dot(projected_c, projected_first)
+                y = np.dot(projected_c, orth)
+                angle = np.arctan2(y, x)
+                # wrap angle to [0, 2*pi]
+                if angle < 0:
+                    angle += 2 * np.pi
+                # print(f"Angle for neighbor {c}: {angle}")
+                angles.append(angle)
+
+            # sort the neighbors by angle
+            neighbors = [x for _, x in sorted(zip(angles, neighbors), reverse=True)]
+
+        # print(f"Neighbors after sorting: {neighbors}")
+
         return neighbors
 
     # as of python 3.7, dicts are ordered by insertion order
@@ -269,14 +315,34 @@ def initial_parametrization(corners, faces):
         elif z > max_z:
             max_z = z
             north = idx
+    # print("BRUTE FORCING THE POLES, PLEASE REMOVE THIS")
+    # for idx, corner in enumerate(corners.keys()):
+    #     if corner == (1, 1, 1):
+    #         north = idx
+    #     elif corner == (3, 2, 2):
+    #         south = idx
 
     # build indexing and reverse indexing
     idx_corners = list(corners.keys())
-
     # re order the corners so that the north pole and the south pole are at the end
     # it makes it easier to build the linear system
-    idx_corners[-2], idx_corners[north] = idx_corners[north], idx_corners[-2]
-    idx_corners[-1], idx_corners[south] = idx_corners[south], idx_corners[-1]
+    # idx_corners[-2], idx_corners[north] = idx_corners[north], idx_corners[-2]
+    # idx_corners[-1], idx_corners[south] = idx_corners[south], idx_corners[-1]
+    # north = len(idx_corners) - 2
+    # south = len(idx_corners) - 1
+    # Ensure you handle ordering: north comes before south in the final list
+    north_val = idx_corners[north]
+    south_val = idx_corners[south]
+
+    # Remove both first (remove the higher index first to avoid reindexing issues)
+    for i in sorted([north, south], reverse=True):
+        idx_corners.pop(i)
+
+    # Append them to the end
+    idx_corners.append(north_val)
+    idx_corners.append(south_val)
+
+    # Update indices
     north = len(idx_corners) - 2
     south = len(idx_corners) - 1
 
@@ -287,8 +353,6 @@ def initial_parametrization(corners, faces):
     n_verts = len(idx_corners)
     A = np.zeros((n_verts - 2, n_verts - 2))
     b = np.zeros((n_verts - 2, 1))
-
-    # I am currently taking into account all neighbors, not just the direct ones (like in the paper)
 
     for corner, idx in corner_idxs.items():
         if idx in [north, south]:
@@ -309,6 +373,9 @@ def initial_parametrization(corners, faces):
 
     # A is symmetric and sparse, but I do not care for now
     lats = np.linalg.solve(A, b).flatten()
+
+    # print(A)
+    # print(b)
 
     # add the boundary conditions for the north and south poles
     lats = np.append(lats, [0.0, np.pi])
@@ -331,90 +398,154 @@ def initial_parametrization(corners, faces):
 
     b[:] = 0.0
 
-    previous = north
+    prev_pos = north
     here = north_neighbors_idx[0]
-    maximum = 0.0
 
+    # print("BRUTE FORCING here, PLEASE REMOVE")
+    # here = 0
+
+    maximum = -1
+    # print("North and south")
+    # print(north)
+    # print(south)
     while here != south:
-        neighbors_idx = [corner_idxs[n] for n in get_neighbors(idx_corners[here])]
+
+        # print(f"Current point: {here}, previous: {prev_pos}")
+        neighbors_idx = [
+            corner_idxs[n]
+            for n in get_neighbors(idx_corners[here], sort=True, direct=True)
+        ]
+        # print(neighbors_idx)
         for n_idx in neighbors_idx:
             lat = lats[n_idx]
+            # print(f"latitude of neighbor {n_idx}: {lat}")
             if lat > maximum:
                 maximum = lat
                 next_here = n_idx
-            if n_idx == previous:
-                prev_pos = n_idx
-        # I have now found a line. Points to the left get -2pi, points to the right get +2pi
-        # Now I have to be careful and use actual direct neighbors
-        for n_idx in neighbors_idx:
-            if n_idx == next_here:
-                continue
-            if n_idx == prev_pos:
-                continue
-            n_coords = idx_corners[n_idx]
-        break
 
-    return latitudes
+        # if here == 1:
+        #     print("BRUTEFORCING next for node 1")
+        #     next_here = 4
+
+        # print(f"prev_pos: {prev_pos}, next_here: {next_here}")
+        # print(f"neighbors: {neighbors_idx}")
+
+        # iterate from prev_pos to next_here
+        i = (neighbors_idx.index(prev_pos) - 1) % len(neighbors_idx)
+
+        stop = neighbors_idx.index(next_here)
+        # print(neighbors_idx)
+        # print(f"stop {stop}")
+        # loop from i+1 till stop handling eventual wrap around
+        while i != stop:
+            # print(i)
+            n_idx = neighbors_idx[i]
+            # print(n_idx)
+            # print(f"decrementing {here}, incrementing {n_idx}")
+            b[here] -= 2 * np.pi
+            b[n_idx] += 2 * np.pi
+
+            i = (i - 1) % len(neighbors_idx)
+
+        prev_pos = here
+        here = next_here
+        maximum = -1
+
+    # solve the linear system again to find the longitudes
+
+    lons = np.linalg.solve(A, b).flatten()
+
+    # add the boundary conditions for the north and south poles
+    lons = np.append(lons, [np.nan, np.nan])
+
+    longitudes = {idx_corners[i]: lons[i] for i in range(len(idx_corners))}
+
+    return latitudes, longitudes
+
+
+def optimize(corners, lats, longs, faces):
+    import scipy.optimize
+
+    idx_corner = list(corners.keys())
+    corner_idx = {value: index for index, value in enumerate(idx_corner)}
+
+    # build the variable vectors
+    n = len(corners)
+
+    x0 = np.zeros((n * 3), dtype=np.float64)
+    for i in range(n):
+        x0[3 * i : 3 * i + 3] = utils.azel_to_xyz(
+            longs[idx_corner[i]], lats[idx_corner[i]]
+        )
+
+    # define the unit norm constraint
+    def unit_norm_fn(x):
+        # TODO could vectorize this by reshaping x maybe
+        c = np.zeros(n, dtype=np.float64)
+
+        for i in range(n):
+            c[i] = np.linalg.norm(x[3 * i : 3 * i + 3])
+        return c
+
+    unit_norm = scipy.optimize.NonlinearConstraint(unit_norm_fn, 1, 1)
+
+    def area_preservation_fcn(x):
+        C = np.zeros((len(faces),), dtype=np.float64)
+        for i, face in enumerate(faces):
+            a, b, c, d = (
+                corner_idx[face[0]],
+                corner_idx[face[1]],
+                corner_idx[face[2]],
+                corner_idx[face[3]],
+            )
+            C[i] = utils.spherical_quadrilateral_area(
+                x[3 * a : 3 * a + 3],
+                x[3 * b : 3 * b + 3],
+                x[3 * c : 3 * c + 3],
+                x[3 * d : 3 * d + 3],
+            )
+
+        return C
+
+    area_preservation = scipy.optimize.NonlinearConstraint(
+        area_preservation_fcn, 4 * np.pi / len(faces), 4 * np.pi / len(faces)
+    )
+
+    # define the cost function
+    def cost_fcn(x):
+        return (np.abs(x - x0)).sum()
+
+    res = scipy.optimize.minimize(
+        cost_fcn, x0, constraints=[unit_norm, area_preservation], method="trust-constr"
+    )
+    print(res)
+    print(res.x.flatten() - x0.flatten())
 
 
 corners, visible_faces = create_data_structure_from_dense(voxels_d)
 
-lats = initial_parametrization(corners, visible_faces)
+# print("BRUTE FORCING THE CORNERS ORDERING, PLEASE REMOVE THIS")
+# corners_ordered = [
+#     (1, 1, 1),
+#     (2, 1, 1),
+#     (3, 1, 1),
+#     (1, 2, 1),
+#     (2, 2, 1),
+#     (3, 2, 1),
+#     (1, 1, 2),
+#     (2, 1, 2),
+#     (3, 1, 2),
+#     (1, 2, 2),
+#     (2, 2, 2),
+#     (3, 2, 2),
+# ]
 
-import pyvista as pv
-import numpy as np
+# corners = {k: corners[k] for k in corners_ordered}
 
-# Initialize point list and face list
-points = []
-faces = []
-scalars = []
+lats, longs = initial_parametrization(corners, visible_faces)
 
+optimize(corners, lats, longs, visible_faces)
 
-# Helper to add a square given its origin and size
-def add_square(corners, scalar_values):
-    """
-    Add a square to the global mesh, given its 4 corners and scalar values.
+# utils.plot_corners(visible_faces, lats)
 
-    Parameters:
-    - corners: list or array of shape (4, 3), each row is [x, y, z]
-    - scalar_values: list of 4 scalar values corresponding to each corner
-    """
-    assert len(corners) == 4, "Exactly 4 corner points are required."
-    assert len(scalar_values) == 4, "Exactly 4 scalar values are required."
-
-    idx = len(points)  # base index for this square
-
-    # Append points and scalars
-    points.extend(corners)
-    scalars.extend(scalar_values)
-
-    # Define the face using point indices
-    faces.extend([4, idx, idx + 1, idx + 2, idx + 3])
-
-
-for face in visible_faces:
-    lats_face = [lats[corner] for corner in face]
-
-    add_square(
-        corners=[list(c) for c in face],
-        scalar_values=lats_face,
-    )
-# Convert to numpy arrays
-points_np = np.array(points)
-faces_np = np.array(faces)
-scalars_np = np.array(scalars)
-
-# Create the mesh
-mesh = pv.PolyData(points_np, faces_np)
-mesh.point_data["scalars"] = scalars_np
-
-# Plot the mesh with interpolated scalar coloring
-plotter = pv.Plotter()
-plotter.add_mesh(
-    mesh,
-    scalars="scalars",
-    cmap="viridis",
-    show_edges=True,
-    interpolate_before_map=True,
-)
-plotter.show()
+utils.plot_corners_sphere(corners, lats, longs)
