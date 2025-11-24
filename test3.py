@@ -1,6 +1,7 @@
 import numpy as np
 import utils
 
+from tqdm import tqdm
 
 # naive implementation of the algorithm to create the data structure
 
@@ -17,10 +18,12 @@ voxels_s = [
     tuple([1, 2, 2]),
 ]
 
-# voxels_s = [
-#     tuple([0, 0, 0]),
-#     tuple([1, 0, 0]),
-# ]
+voxels_s = [
+    tuple([0, 0, 0]),
+    tuple([1, 0, 0]),
+    tuple([1, 1, 0]),
+    tuple([1, 1, 1]),
+]
 
 voxels_d = utils.sparse_to_dense(voxels_s)
 
@@ -508,12 +511,15 @@ def optimize(corners, lats, longs, faces):
         return C
 
     area_preservation = scipy.optimize.NonlinearConstraint(
-        area_preservation_fcn, 4 * np.pi / len(faces), 4 * np.pi / len(faces)
+        area_preservation_fcn,
+        4 * np.pi / len(faces) - 1e-4,
+        4 * np.pi / len(faces) + 1e-4,
     )
 
     # define the cost function
     def cost_fcn(x):
         return (np.abs(x - x0)).sum()
+        # return np.abs(area_preservation_fcn(x) - 4 * np.pi / len(faces)).sum()
 
     res = scipy.optimize.minimize(
         cost_fcn, x0, constraints=[unit_norm, area_preservation], method="trust-constr"
@@ -546,6 +552,6 @@ lats, longs = initial_parametrization(corners, visible_faces)
 
 optimize(corners, lats, longs, visible_faces)
 
-# utils.plot_corners(visible_faces, lats)
+utils.plot_corners(visible_faces, lats)
 
 utils.plot_corners_sphere(corners, lats, longs)

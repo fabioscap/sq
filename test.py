@@ -32,8 +32,3 @@ def superquadric_mesh(a=1, b=1, c=1, epsilon1=1, epsilon2=1, resolution=100):
     mesh.triangles = o3d.utility.Vector3iVector(faces)
     mesh.compute_vertex_normals()
     return mesh
-
-
-# Create and render a superquadric
-mesh = superquadric_mesh(a=1, b=1.1, c=0.3, epsilon1=0.3, epsilon2=1, resolution=50)
-o3d.visualization.draw_geometries([mesh])

@@ -52,50 +52,53 @@ def plot_corners(visible_faces, colors):
     import pyvista as pv
     import numpy as np
 
-    # Initialize point list and face list
+    # Initialize lists
     points = []
     faces = []
     scalars = []
 
-    # Helper to add a square given its origin and size
-    def add_square(corners, scalar_values):
+    corner_set = set()
+
+    def add_square(corners, corner_keys, scalar_values):
         """
-        Add a square to the global mesh, given its 4 corners and scalar values.
+        Add a square to the mesh.
 
         Parameters:
-        - corners: list or array of shape (4, 3), each row is [x, y, z]
-        - scalar_values: list of 4 scalar values corresponding to each corner
+        - corners: array of shape (4, 3)
+        - corner_keys: list of 4 keys (e.g. corner IDs)
+        - scalar_values: list of 4 scalar values
         """
-        assert len(corners) == 4, "Exactly 4 corner points are required."
-        assert len(scalar_values) == 4, "Exactly 4 scalar values are required."
-
         valids = [v for v in scalar_values if not np.isnan(v)]
-        mean = np.mean(valids)
+        mean = np.mean(valids) if valids else 0.0
         scalar_values = [v if not np.isnan(v) else mean for v in scalar_values]
-        idx = len(points)  # base index for this square
 
-        # Append points and scalars
+        idx = len(points)
+
         points.extend(corners)
         scalars.extend(scalar_values)
+        for corner in corner_keys:
+            corner_set.add(tuple(int(c) for c in corner))
 
-        # Define the face using point indices
         faces.extend([4, idx, idx + 1, idx + 2, idx + 3])
 
     for face in visible_faces:
+        corner_keys = face
         add_square(
             corners=[list(c) for c in face],
+            corner_keys=corner_keys,
             scalar_values=[colors[corner] for corner in face],
         )
-    # Convert to numpy arrays
+
+    # Convert lists to arrays
     points_np = np.array(points)
     faces_np = np.array(faces)
     scalars_np = np.array(scalars)
 
-    # Create the mesh
+    # Create mesh
     mesh = pv.PolyData(points_np, faces_np)
     mesh.point_data["scalars"] = scalars_np
 
-    # Plot the mesh with interpolated scalar coloring
+    # Plot
     plotter = pv.Plotter()
     plotter.add_mesh(
         mesh,
@@ -104,6 +107,16 @@ def plot_corners(visible_faces, colors):
         show_edges=True,
         interpolate_before_map=True,
     )
+
+    plotter.add_point_labels(
+        list(corner_set),
+        [str(c) for c in corner_set],
+        font_size=12,
+        text_color="black",
+        point_size=10,
+        shape_opacity=0.3,
+        always_visible=False,
+    )
     plotter.show()
 
 
@@ -111,6 +124,8 @@ def plot_corners_sphere(corners, lats, longs):
 
     import pyvista as pv
     import numpy as np
+
+    mapping = {}
 
     # Initialize point list and face list
     plotter = pv.Plotter()
@@ -125,6 +140,8 @@ def plot_corners_sphere(corners, lats, longs):
         neighbors = get_neighbors(corners, corner, direct=True, sort=False)
 
         a_sphere = azel_to_xyz(longs[corner], lats[corner])
+
+        mapping[tuple([int(c) for c in corner])] = a_sphere
 
         for neighbor in neighbors:
             line = tuple(sorted((corner, neighbor)))
@@ -142,6 +159,15 @@ def plot_corners_sphere(corners, lats, longs):
 
     # Plot the mesh with interpolated scalar coloring
 
+    plotter.add_point_labels(
+        list(mapping.values()),
+        list(mapping.keys()),
+        font_size=12,
+        text_color="black",
+        point_size=10,
+        shape_opacity=0.3,
+        always_visible=False,
+    )
     plotter.show()
 
 
